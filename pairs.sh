@@ -20,14 +20,7 @@
 # 4. MAKE SURE IT IS THE PAGE ON THE TOP
 # 5. run this script in a terminal
 
-# Limitations:
-# Pairs has adopted some sort of protections against robots like this script.
-# The one that affects this script is Pairs inserts some fake links among
-# the candidates. The script can accidentally click on these links, which leads
-# to a page jump, therefore, breaks the whole flow.
-# One way to prevent this is to have a large `CLICKS_PER_ITER`, since you will
-# not click on the links when you are doing `next`. Please note that
-# Pairs also have another mechanism to have limited number of
+# Please note that Pairs has a mechanism to have limited number of
 # next you can click.
 
 set -aux
@@ -49,11 +42,14 @@ SCROLL_PER_ROW=5
 # Numbers of candidates per row. The number is fixed in Pairs.
 CAND_PER_ROW=5
 # Delay in milliseconds per scroll, since the page is quite slow
-SCROLL_DOWN_DELAY=1000
+SCROLL_DOWN_DELAY=50
 # Number of scroll needed.
 # It is automatically calculated.
 # Basically users do not need to change this value
 SCROLL_DOWN_NUM=$((SCROLL_PER_ROW * CLICKS_PER_ITER / CAND_PER_ROW))
+
+SEARCH_URL="https://pairs.lv/search"
+USER_PROFILE_PREFIX="https://pairs.lv/user/profile/"
 
 # The total amount of candidates to be clicked is
 # REPEATS * CLICKS_PER_ITER
@@ -62,7 +58,7 @@ function click_next_loop()
 {
     # move to next arrow
     # when the resolution changes, the coordinates change
-    xdotool mousemove 2340 1144
+    xdotool mousemove 2331 1154
     # clicks
     for((j=1;j<=${CLICKS_PER_ITER};j++))
     do
@@ -73,15 +69,18 @@ function click_next_loop()
 
 function scroll_down()
 {
+    local scroll_down_num=$1
+    # sleep to make sure the close button is shown
+    sleep 1
     # close the profile window
-    xdotool mousemove 1599 165
+    xdotool mousemove 1436 213
     xdotool click 1
     # sleep to make sure the window is closed
     sleep 1
 
     # scroll down the page to new candidates
     # use the wheel down
-    xdotool click --delay ${SCROLL_DOWN_DELAY} --repeat ${SCROLL_DOWN_NUM} 5
+    xdotool click --delay ${SCROLL_DOWN_DELAY} --repeat ${scroll_down_num} 5
 }
 
 function find_chrome()
@@ -90,13 +89,71 @@ function find_chrome()
     xdotool windowactivate ${window_id}
 }
 
+function get_url()
+{
+    # move to address bar
+    xdotool mousemove 752 140
+    xdotool click 1
+    xdotool key ctrl+a
+    sleep 1
+    xdotool key ctrl+c
+    echo $(xclip -o)
+}
+
+function make_sure_search_page()
+{
+    loop_id=$1
+
+    current_url=$(get_url)
+    if [[ ${SEARCH_URL} != ${current_url} ]] && [[ ${current_url} != ${USER_PROFILE_PREFIX}* ]]
+    then
+        echo "the page has been changed to " ${current_url}
+        # reload the address
+        xdotool type ${SEARCH_URL}
+        xdotool key Return
+        # wait for the page to reload
+        sleep 5
+
+        # scroll down
+        scroll_down $((SCROLL_DOWN_NUM * loop_id))
+    fi
+}
+
+function click_first_person()
+{
+    xdotool mousemove 1640 477
+    xdotool click 1
+    sleep 3;
+}
+
+function open_profile()
+{
+    local need_scroll_down=$1
+    local loop_id=$2
+
+    current_url=$(get_url)
+    case ${current_url} in
+        ${SEARCH_URL} )  
+            if [[ ${need_scroll_down} -ne 0 ]]
+            then
+                scroll_down $((SCROLL_PER_ROW - 1))
+            fi
+            click_first_person
+            open_profile 1 ${loop_id};;
+        ${USER_PROFILE_PREFIX}* ) ;;
+        * ) make_sure_search_page ${loop_id}; scroll_down $((SCROLL_PER_ROW - 1)); click_first_person; open_profile 0 ${loop_id};;
+    esac
+}
 
 # switch to chrome
 find_chrome
+make_sure_search_page 0
 
 # start clicking
-for((i=1;i<=${REPEATS};i++))
+for((i=0;i<${REPEATS};i++))
 do
+    open_profile 0 i
+    make_sure_search_page i
     click_next_loop
-    scroll_down
+    scroll_down ${SCROLL_DOWN_NUM}
 done
